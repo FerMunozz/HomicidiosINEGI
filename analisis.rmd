@@ -1,0 +1,270 @@
+---
+title: "Análisis Homicidios"
+author: "Fernanda Muñoz Arroyo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("/Users/fernandamunoz/Documents/datacivica/defunciones")
+library(tidyverse)
+library(dplyr)
+```
+
+## Análisis de Datos: Homicidios México 2022-2024
+Este reporte consiste en el análisis de  una base de datos creada con los microdatos de INEGI sobre defunciones. 
+Los datos recabados son de 2022-2024 y son respecto a la entidad de ocurrencia.
+
+```{r uno}
+leer_homicidios <- function(filename, year){
+    df <- readr::read_csv(filename, show_col_types = FALSE) 
+    # limpiar nombres
+    new_names <- names(df) %>%
+        tolower() %>%                  # minúsculas
+        trimws() %>%                   # quitar espacios
+        stringi::stri_trans_general("Latin-ASCII") %>% # acentos
+        gsub(" ", "_", .) %>%          # espacios por _
+        gsub("\\(", "", .) %>%         # quitar paréntesis (
+        gsub("\\)", "", .) %>%         # quitar paréntesis )
+        gsub("\\+", "", .) %>%         # quitar +
+        gsub("-", "_", .)              # guiones a _
+  
+    names(df) <- new_names
+    # agregar año como columna
+    df$year <- year
+    return(df)
+}
+
+df22 <- leer_homicidios("hom22.csv", 2022)
+df23 <- leer_homicidios("hom23.csv", 2023)
+df24 <- leer_homicidios("hom24.csv", 2024)
+
+df <- dplyr::bind_rows(df22, df23, df24)
+
+names(df)
+```
+```{r dos echo=FALSE}
+# renombrar cols
+df <- df %>%
+  rename(
+    ent_ocurr = ent_ocurr,
+    total_presuntos_homicidios = total_presuntos_homicidios,
+    hombre = hombre,
+    mujer = mujer,
+    infancias_0_9 = infancias_0_9,
+    adolescentes_10_19 = adolescentes_10_19,
+    jovenes_20_35 = jovenes_20_35,
+    adultos_36_59 = adultos_36_59,
+    adultos_mayores_60 = adultos_mayores_60,
+    ano=year
+  )
+# convertir a numerico
+df <- df %>%
+  mutate(across(
+    c(
+      total_presuntos_homicidios,
+      hombre, mujer,
+      infancias_0_9,
+      adolescentes_10_19,
+      jovenes_20_35,
+      adultos_36_59,
+      adultos_mayores_60
+    ),
+    ~ as.numeric(trimws(.))
+  ))
+# hacer catalogo de nombre de ent pata agregar nombres a los codigos de entidad
+catalogo_entidades <- tibble::tibble(
+  ent_ocurr = sprintf("%02d", 1:32),
+  entidad = c(
+    "Aguascalientes",
+    "Baja California",
+    "Baja California Sur",
+    "Campeche",
+    "Coahuila",
+    "Colima",
+    "Chiapas",
+    "Chihuahua",
+    "Distrito Federal",
+    "Durango",
+    "Guanajuato",
+    "Guerrero",
+    "Hidalgo",
+    "Jalisco",
+    "México",
+    "Michoacán",
+    "Morelos",
+    "Nayarit",
+    "Nuevo León",
+    "Oaxaca",
+    "Puebla",
+    "Querétaro",
+    "Quintana Roo",
+    "San Luis Potosí",
+    "Sinaloa",
+    "Sonora",
+    "Tabasco",
+    "Tamaulipas",
+    "Tlaxcala",
+    "Veracruz",
+    "Yucatán",
+    "Zacatecas"
+  )
+)
+df <- df %>%
+  mutate(ent_ocurr = sprintf("%02d", as.numeric(ent_ocurr)))
+df <- df %>%
+  left_join(catalogo_entidades, by = "ent_ocurr")
+
+```
+```{r tres, echo=FALSE}
+names(df)
+```
+```{r pressure, echo=FALSE}
+# hom por ent del 22-24
+# 21 de 32 ent subio respecto a los dos anos anteriores
+library(ggplot2)
+library(scales)
+
+ggplot(df, aes(x = ano, y = total_presuntos_homicidios, group = ent_ocurr)) +
+  geom_line(alpha = 0.4, color = "gray50") +
+  geom_smooth(se = FALSE, color = "#1B4F72", size = 1.2) +
+  facet_wrap(~ ent_ocurr, scales = "free_y") +
+  scale_x_continuous(breaks = c(2022, 2023, 2024)) +
+  labs(title = "Tendencias de presuntos homicidios por entidad",
+       subtitle = "Con línea suavizada para resaltar la dirección general",
+       x = "Año",
+       y = "Total de presuntos homicidios") +
+  theme_minimal(base_size = 14) +
+  theme(
+    strip.background = element_rect(fill = "#E5E8E8", color = NA),
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+```{r cuatro, echo=FALSE}
+# barras por año (modificador)
+library(ggplot2)
+
+df %>%
+  filter(ano == 2024) %>%
+  ggplot(aes(x = reorder(entidad, total_presuntos_homicidios),
+             y = total_presuntos_homicidios)) +
+  geom_col(fill = "steelblue", width = 0.7) +
+  coord_flip() +
+  labs(
+    title = "Homicidios por entidad — 2024",
+    x = "Entidad federativa",
+    y = "Total de homicidios"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.y = element_text(size = 10)
+  )
+
+```
+```{r cinco, echo=FALSE}
+# 3 años
+entano <- df %>%
+  ggplot(aes(x = entidad,
+             y = total_presuntos_homicidios,
+             fill = factor(ano))) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  scale_fill_manual(values = c("2022"="#1f78b4", "2023"="#33a02c", "2024"="#e31a1c"),
+                    name = "Año") +
+  labs(
+    title = "Homicidios por entidad comparando 2022, 2023 y 2024",
+    x = "Entidad",
+    y = "Total de homicidios"
+  ) +
+  theme_minimal(base_size = 14)
+ggsave("homicidios_por_entano_2022_2024.pdf", entano, width = 10, height = 7)
+
+
+```
+```{r seis, echo=FALSE}
+#3 años acumulados para sexo
+grafica_sexo <- df %>%
+  summarise(
+    hombres = sum(hombre, na.rm=TRUE),
+    mujeres = sum(mujer, na.rm=TRUE)
+  ) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(x = name, y = value, fill = name)) +
+  geom_col() +
+  scale_fill_manual(values = c("#1f78b4", "#e31a1c")) +
+  labs(
+    title = "Total de homicidios por sexo (2022–2024)",
+    x = "Sexo",
+    y = "Total"
+  ) +
+  theme_minimal(base_size = 14)
+ggsave("homicidios_por_sexo_2022_2024.pdf", grafica_sexo, width = 10, height = 7)
+
+
+```
+```{r siete, echo=FALSE}
+# 3 años para edad
+grafica_edades <- df %>%
+  summarise(
+    infancias = sum(infancias_0_9, na.rm=TRUE),
+    adolescentes = sum(adolescentes_10_19, na.rm=TRUE),
+    jovenes = sum(jovenes_20_35, na.rm=TRUE),
+    adultos = sum(adultos_36_59, na.rm=TRUE),
+    mayores = sum(adultos_mayores_60, na.rm=TRUE)
+  ) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(x = reorder(name, value), y = value, fill = name)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Total de homicidios por grupo de edad (2022–2024)",
+    x = "Grupo de edad",
+    y = "Total"
+  ) +
+  theme_minimal(base_size = 14)
+
+ggsave("homicidios_por_edad_2022_2024.pdf", grafica_edades, width = 10, height = 7)
+
+
+```
+```{r ocho, echo=FALSE}
+library(geodata)
+library(sf)
+library(dplyr)
+library(ggplot2)
+
+# Descargar mapa estatal nivel 1
+mx_map <- gadm(country = "MEX", level = 1, path = tempdir())
+mx_map <- st_as_sf(mx_map)
+
+# Ver los nombres de las entidades en el shapefile
+unique(mx_map$NAME_1)
+
+#suma de hom en mi base
+df_mapa <- df %>%
+  group_by(entidad) %>%
+  summarise(total_homicidios_3anhos = sum(total_presuntos_homicidios, na.rm = TRUE))
+
+
+```
+
+```{r nueve, echo=FALSE}
+mx_map2 <- mx_map %>%
+  left_join(df_mapa, by = c("NAME_1" = "entidad"))
+```
+
+```{r diez, echo=FALSE}
+mapa <- ggplot(mx_map2) +
+  geom_sf(aes(fill = total_homicidios_3anhos)) +
+  scale_fill_viridis_c(option = "magma") +
+  labs(
+    title = "Homicidios totales en los últimos 3 años por entidad",
+    fill = "Homicidios"
+  ) +
+  theme_minimal()
+
+ggsave("homicidios_mapa_2022_2024.pdf", mapa, width = 10, height = 7)
+```
